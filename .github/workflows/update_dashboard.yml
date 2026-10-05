@@ -1,0 +1,86 @@
+name: Update Sales Dashboard
+
+on:
+  push:
+    paths:
+      - '*.csv' # 當任何 CSV 被更新時觸發
+  workflow_dispatch: # 允許手動點擊按鈕觸發
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pandas sqlalchemy pymysql plotly
+
+      - name: Update Database and Generate HTML
+        env:
+          DB_HOST: ${{ secrets.MYSQL_HOST }}
+          DB_PORT: ${{ secrets.MYSQL_PORT }}
+          DB_USER: ${{ secrets.MYSQL_USER }}
+          DB_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          DB_NAME: ${{ secrets.MYSQL_DB }}
+        run: |
+          python -c "
+          import pandas as pd
+          from sqlalchemy import create_engine, text
+          import plotly.express as px
+          import os, glob
+          
+          # 找尋最新的 csv (此處簡化為尋找 sales_updated_300.csv，若無則找 sales_original_300.csv)
+          csv_files = glob.glob('*.csv')
+          target_csv = 'sales_updated_300.csv' if 'sales_updated_300.csv' in csv_files else 'sales_original_300.csv'
+          
+          print(f'Loading data from {target_csv}...')
+          df = pd.read_csv(target_csv, encoding='utf-8-sig')
+          df['net_sales'] = df['unit_price'] * (df['quantity'] - df['returned_quantity'])
+          
+          DB_HOST = os.environ['DB_HOST']
+          DB_PORT = os.environ['DB_PORT']
+          DB_USER = os.environ['DB_USER']
+          DB_PASSWORD = os.environ['DB_PASSWORD']
+          DB_NAME = os.environ.get('DB_NAME', 'defaultdb')
+          
+          engine = create_engine(f'mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
+          
+          with engine.connect() as conn:
+              conn.execute(text('DROP TABLE IF EXISTS sales_data'))
+              conn.execute(text('''
+                  CREATE TABLE sales_data (
+                      sale_id BIGINT PRIMARY KEY,
+                      sale_date VARCHAR(255),
+                      product_id BIGINT,
+                      product_name VARCHAR(255),
+                      category VARCHAR(255),
+                      channel VARCHAR(255),
+                      unit_price BIGINT,
+                      quantity BIGINT,
+                      returned_quantity BIGINT,
+                      net_sales BIGINT
+                  )
+              '''))
+          
+          df.to_sql('sales_data', engine, if_exists='append', index=False)
+          print('Database updated successfully.')
+          
+          sales_by_product = df.groupby('product_name')['net_sales'].sum().reset_index()
+          fig = px.bar(sales_by_product, x='product_name', y='net_sales', title=f'各商品淨銷售額 (Data from {target_csv})', text_auto=True)
+          fig.write_html('index.html')
+          print('HTML generated successfully.')
+          "
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m "Auto-update dashboard based on latest CSV" || echo "No changes to commit"
+          git push
