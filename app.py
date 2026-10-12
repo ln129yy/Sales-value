@@ -2,16 +2,15 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine
 import plotly.express as px
-import os
 
-# 1. 取得資料庫連線密碼 (稍後會在平台後台設定)
-DB_HOST = os.environ.get("MYSQL_HOST")
-DB_PORT = os.environ.get("MYSQL_PORT", "3306")
-DB_USER = os.environ.get("MYSQL_USER")
-DB_PASSWORD = os.environ.get("MYSQL_PASSWORD")
-DB_NAME = os.environ.get("MYSQL_DB", "defaultdb")
+# 1. 取得資料庫連線密碼 (改用 Streamlit 專屬語法 st.secrets)
+DB_HOST = st.secrets["MYSQL_HOST"]
+DB_PORT = st.secrets["MYSQL_PORT"]
+DB_USER = st.secrets["MYSQL_USER"]
+DB_PASSWORD = st.secrets["MYSQL_PASSWORD"]
+DB_NAME = st.secrets["MYSQL_DB"]
 
-# 2. 連線至 MySQL 讀取資料 (取消長時間快取，確保 F5 能更新)
+# 2. 連線至 MySQL 讀取資料 (設定快取時間為 2 秒，確保 F5 能更新)
 @st.cache_data(ttl=2) 
 def load_data():
     engine = create_engine(f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
